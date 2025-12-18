@@ -1,0 +1,40 @@
+# --- Python & Runtime ---
+__pycache__/
+*.py[cod]
+*$py.class
+
+# --- Virtual Environments (uv) ---
+# uv creates a .venv directory by default. We must ignore it.
+.venv/
+venv/
+env/
+ENV/
+
+# --- Jupyter Notebooks ---
+# Ignore checkpoint folders created by Jupyter Lab
+.ipynb_checkpoints/
+# Optional: Ignore local Jupyter config
+.jupyter/
+
+# --- Data Management ---
+# Ignore the CONTENTS of these folders, but keep the folders themselves.
+data/raw/*
+data/processed/*
+data/temp/*
+
+# Exceptions: Allow READMEs or .gitkeep files to be committed
+# This ensures the folder structure exists in the repo even if empty.
+!data/**/.gitkeep
+!data/**/README.md
+
+# --- OS & Editor Metadata ---
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# --- Build & Distribution (if you ever package this) ---
+build/
+dist/
+*.egg-info/
+

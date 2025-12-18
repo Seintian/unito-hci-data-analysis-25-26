@@ -48,7 +48,7 @@ cd unito-hci-data-analysis-25-26
 
 ```bash
 # If you don't have uv installed yet:
-# curl -LsSf [https://astral.sh/uv/install.sh](https://astral.sh/uv/install.sh) | sh
+# curl -LsSf https://astral.sh/uv/install.sh | sh
 
 uv sync
 ```

@@ -7,7 +7,7 @@ Questa directory gestisce l'ingestione e l'elaborazione dei dataset del progetto
 ## 🔄 Il Workflow del Team
 
 1.  **Scarica i Dati Grezzi (Raw):**
-    * Accedi ai dataset tramite il [Link Google Drive](https://drive.google.com/drive/folders/1Zq40PIdyVZ6orZgtP5YqeYAq54sAP1QV?usp=drive_link) ufficiale fornito nell'assignment.
+    * Accedi ai dataset tramite il Link Google Drive ufficiale fornito nell'assignment.
     * Decomprimi il contenuto nella cartella `/data/raw/`.
 
 2.  **Esegui la Pipeline di Pulizia:**

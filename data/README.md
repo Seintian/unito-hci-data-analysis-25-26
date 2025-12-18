@@ -7,7 +7,7 @@ This directory manages the ingestion and processing of the project's datasets. T
 ## 🔄 The Team Workflow
 
 1.  **Download Raw Data:**
-    * Access the datasets via the official [Google Drive Link](https://drive.google.com/drive/folders/1Zq40PIdyVZ6orZgtP5YqeYAq54sAP1QV?usp=drive_link) provided in the assignment.
+    * Access the datasets via the official Google Drive Link provided in the assignment.
     * Unzip the contents into the `/data/raw/` folder.
 
 2.  **Run the Cleaning Pipeline:**

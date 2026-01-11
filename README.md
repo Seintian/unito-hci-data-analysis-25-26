@@ -53,6 +53,13 @@ cd unito-hci-data-analysis-25-26
 uv sync
 ```
 
+This will create a virtual environment in `.venv`.
+
+> **Note:** To enable imports like `from solution.src.common ...` in the notebooks, ensure the project package is installed in editable mode:
+> ```bash
+> uv pip install -e .
+> ```
+
 **3. Setup Data:** Navigate to the `data/` directory and follow the instructions in `data/README.md` to download and prepare the datasets from the source.
 
 **4. Run the Project:** To launch Jupyter Lab inside the managed environment:

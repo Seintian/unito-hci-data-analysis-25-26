@@ -20,4 +20,7 @@ build-backend = "hatchling.build"
 
 [tool.uv]
 # This pins the exact Python version for the team to ensure consistency
-package = false
+# package = false (Removed to allow editable install)
+
+[tool.hatch.build.targets.wheel]
+packages = ["solution"]

@@ -53,6 +53,13 @@ cd unito-hci-data-analysis-25-26
 uv sync
 ```
 
+Questo creerà un ambiente virtuale in `.venv`.
+
+> **Nota:** Per abilitare importazioni come `from solution.src.common ...` nei notebook, assicurarsi che il pacchetto del progetto sia installato in modalità modificabile (editable):
+> ```bash
+> uv pip install -e .
+> ```
+
 **3. Setup dei Dati:** Naviga nella directory `data/` e segui le istruzioni in `data/README.it.md` per scaricare e preparare i dataset dalla fonte.
 
 **4. Esegui il Progetto:** Per lanciare Jupyter Lab all'interno dell'ambiente gestito:

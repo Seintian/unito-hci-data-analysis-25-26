@@ -1614,7 +1614,7 @@ wheels = [
 [[package]]
 name = "unito-hci-data-analysis-25-26"
 version = "0.1.0"
-source = { virtual = "." }
+source = { editable = "." }
 dependencies = [
     { name = "folium" },
     { name = "geopandas" },

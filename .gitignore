@@ -38,3 +38,5 @@ build/
 dist/
 *.egg-info/
 
+# --- Text & Status Files ---
+*.txt

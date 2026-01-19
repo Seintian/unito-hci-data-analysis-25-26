@@ -9,19 +9,27 @@ def get_memory_usage_mb(df: pd.DataFrame) -> float:
 
 def print_fancy_progress(current: int, total: int, prefix: str = '', length: int = 30):
     """
-    Prints a fancy ASCII progress bar via terminal characters.
-    Style: [==========          ] 50.0%
+    Prints a terminal-style progress bar with colored lines.
+    Style: Prefix -------_______ 50.0% (Green filled, Gray empty)
     """
     percent = current / total
-    # Cap at 1.0 needed for safety
     if percent > 1.0: percent = 1.0
     
     filled = int(length * percent)
-    # Use spaces for empty part
-    bar = '=' * filled + ' ' * (length - filled) 
     
-    # \r returns to start of line, end="" prevents new line until done
-    print(f"\r{prefix} [{bar}] {percent:.1%}", end="", flush=True)
+    # ANSI Colors
+    GREEN = "\033[32m" # Standard Green
+    GRAY = "\033[90m"  # Bright Black (Gray)
+    RESET = "\033[0m"
+    
+    # Character to use
+    char = '-'
+    
+    # Build the bar: Green filled part + Gray empty part
+    bar = f"{GREEN}{char * filled}{GRAY}{char * (length - filled)}{RESET}"
+    
+    # \r returns to start of line
+    print(f"\r{prefix} {bar} {percent:.1%}", end="", flush=True)
     
     if current == total:
         print() # New line on completion

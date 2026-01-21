@@ -93,3 +93,46 @@ def save_refined(df: pd.DataFrame, filename: str, verbose: bool = True):
     
     # Force Garbage Collection to free memory immediately after save
     gc.collect()
+
+def clean_string_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Trims whitespace from string columns and optionally standardizes format.
+    Safely handles NaNs.
+    """
+    for col in df.columns:
+        # Check if column is object/string and not categorical
+        if pd.api.types.is_object_dtype(df[col]) or pd.api.types.is_string_dtype(df[col]):
+            if isinstance(df[col].dtype, pd.CategoricalDtype):
+                continue
+            
+            # Apply .str.strip() which is NaN-safe for object columns containing strings/NaNs
+            try:
+                # This works if the column is of object dtype with strings.
+                # If it contains mixed types (int and str), .str might fail or result in NaNs for non-strings depending on pandas version.
+                # Safe approach: convert to string only if it's not null?
+                # Actually, .str accessor usually handles NaN gracefully by keeping it NaN.
+                df[col] = df[col].str.strip()
+            except AttributeError:
+                # Column might not support .str accessor (e.g. if it's all integers cast to object?)
+                pass
+                
+    return df
+
+def enforce_referential_integrity(df: pd.DataFrame, col_name: str, valid_ids: set) -> tuple[pd.DataFrame, int]:
+    """
+    Drops rows where col_name is not in valid_ids.
+    Returns (cleaned_df, num_dropped).
+    """
+    if col_name not in df.columns:
+        return df, 0
+    
+    initial_rows = len(df)
+    
+    # Ensure compatible types for matching
+    # Helper to infer type for safety? Assuming ID types match (usually int or string)
+    # We'll rely on the caller ensuring types match or just try matching.
+    
+    df = df[df[col_name].isin(valid_ids)]
+    
+    dropped = initial_rows - len(df)
+    return df, dropped

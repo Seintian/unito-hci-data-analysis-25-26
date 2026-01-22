@@ -25,18 +25,10 @@ def clean_characters_logic(df: pd.DataFrame) -> pd.DataFrame:
     df = df.drop_duplicates(subset=['character_id'])
     rows_after_dedup = len(df)
 
-    # 1.2 Drop if 'name' is missing (Key field logic)
-    if 'name' in df.columns:
-        df = df.dropna(subset=['name'])
-    rows_after_name = len(df)
-    
-    # 1.3 String Cleaning
+    # 1.2 String Cleaning
     df = clean_string_columns(df)
 
-    # 2. Fill favorites
-    df['favorites'] = df['favorites'].fillna(0)
-
-    # 3. Drop 'about'
+    # 2. Drop 'about'
     dropped_cols = []
     if 'about' in df.columns:
         df = df.drop(columns=['about'])
@@ -47,7 +39,7 @@ def clean_characters_logic(df: pd.DataFrame) -> pd.DataFrame:
     print(f"Initial Rows: {initial_rows}")
     print(f"Rows Dropped (Missing ID): {initial_rows - rows_after_drop_id}")
     print(f"Rows Dropped (Duplicates): {rows_after_drop_id - rows_after_dedup}")
-    print(f"Rows Dropped (Missing Name): {rows_after_dedup - rows_after_name}")
+    # print(f"Rows Dropped (Missing Name): {rows_after_dedup - rows_after_name}")
     print(f"Favorites Imputed (NaN -> 0): {missing_favs}")
     print(f"Columns Dropped: {dropped_cols}")
     print(f"Final Shape: {df.shape}")
@@ -65,29 +57,24 @@ def clean_details_logic(df: pd.DataFrame) -> pd.DataFrame:
     if 'mal_id' in df.columns:
         df = df.rename(columns={'mal_id': 'anime_id'})
 
-    # 0.1 Deduplicate
+    # 1. Deduplicate
     if 'anime_id' in df.columns:
         df = df.drop_duplicates(subset=['anime_id'])
     rows_after_dedup = len(df)
     
-    # 0.2 Check Title (Key Field)
+    # 2. Check Title (Key Field)
     if 'title' in df.columns:
         df = df.dropna(subset=['title'])
     rows_after_title = len(df)
 
-    # 0.3 String Cleaning
+    # 3. String Cleaning
     df = clean_string_columns(df)
 
-    # 0.4 Impute Text
-    for text_col in ['synopsis', 'background']:
-        if text_col in df.columns:
-             df[text_col] = df[text_col].fillna("Unknown")
-
-    # 1. Date Parsing
+    # 4. Date Parsing
     df['start_date'] = pd.to_datetime(df['start_date'],  errors='coerce')
     df['end_date'] = pd.to_datetime(df['end_date'],  errors='coerce')
 
-    # 2. Impute Year from Start Date
+    # 5. Impute Year from Start Date
     missing_year_before = df['year'].isna().sum()
     df['year'] = df['year'].fillna(df['start_date'].dt.year) # type: ignore
     missing_year_after = df['year'].isna().sum()
@@ -120,21 +107,20 @@ def clean_stats_logic(df: pd.DataFrame, valid_anime_ids: Optional[Set] = None) -
     if 'mal_id' in df.columns:
         df = df.rename(columns={'mal_id': 'anime_id'})
 
-    # 0. Deduplicate
+    # 1. Deduplicate
     if 'anime_id' in df.columns:
         df = df.drop_duplicates(subset=['anime_id'])
     
     rows_after_dedup = len(df)
     rows_dropped_orphans = 0
 
-    # 0.5 Referential Integrity
+    # 2. Referential Integrity
     if valid_anime_ids is not None and 'anime_id' in df.columns:
         df, rows_dropped_orphans = enforce_referential_integrity(df, 'anime_id', valid_anime_ids)
 
-    # Fill score columns with 0
+    # 3. Check score columns
     score_cols = df.filter(like='score_').columns
     nan_in_scores = df[score_cols].isna().sum().sum()
-    df[score_cols] = df[score_cols].fillna(0)
 
     # Report
     print(f"--- Stats Cleaning Report ---")
@@ -158,30 +144,28 @@ def clean_ratings_chunk_logic(chunk: pd.DataFrame, valid_anime_ids: Optional[Set
         'dropped_orphans': 0
     }
 
-    # 0. Referential Integrity
+    # 1. Referential Integrity
     if valid_anime_ids is not None:
         chunk, dropped = enforce_referential_integrity(chunk, 'anime_id', valid_anime_ids)
         metrics['dropped_orphans'] = dropped
 
-    # 1. Drop missing username
+    # 2. Drop missing username
     missing_user_mask = chunk['username'].isna()
     metrics['dropped_username'] = missing_user_mask.sum()
     
     chunk = chunk.dropna(subset=['username'])
 
-    # 1.5. Score Sanity Check
+    # 3. Score Sanity Check
     chunk = chunk[(chunk['score'] >= 0) & (chunk['score'] <= 10)]
 
-    # 2. Fill rewatching
+    # 4. Check rewatching
     missing_rewatch_mask = chunk['is_rewatching'].isna()
     metrics['rewatch_imputed'] = missing_rewatch_mask.sum()
 
-    chunk['is_rewatching'] = chunk['is_rewatching'].fillna(0).astype(np.uint8)
-
-    # 2.5 String Cleaning
+    # 5. String Cleaning
     chunk = clean_string_columns(chunk)
 
-    # 3. Optimize types strictly
+    # 6. Optimize types strictly
     chunk = chunk.astype({
         'anime_id': np.int32,
         'score': np.int8,
@@ -214,15 +198,15 @@ def clean_generic_file_logic(df: pd.DataFrame, filename: str, valid_ids_map: Opt
                 df = df.rename(columns={old: new})
                 actions.append(f"Renamed {old}->{new}")
 
-    # 0. Deduplicate
+    # 1. Deduplicate
     df = df.drop_duplicates()
     if len(df) < initial_rows:
         actions.append(f"Deduplicated ({initial_rows - len(df)} rows)")
 
-    # 1. String Cleaning
+    # 2. String Cleaning
     df = clean_string_columns(df)
     
-    # 2. Referential Integrity
+    # 3. Referential Integrity
     if valid_ids_map:
         for col, valid_ids in valid_ids_map.items():
             if col in df.columns and valid_ids is not None:

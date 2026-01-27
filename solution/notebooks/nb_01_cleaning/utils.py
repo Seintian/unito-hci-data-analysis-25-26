@@ -4,40 +4,56 @@ import gc
 from solution.src.common import PROCESSED_DATA_DIR
 
 def get_memory_usage_mb(df: pd.DataFrame) -> float:
-    """Returns the memory usage of the DataFrame in MB."""
+    """
+    Calculates the memory usage of the DataFrame in Megabytes (MB).
+    
+    Args:
+        df: The pandas DataFrame to inspect.
+        
+    Returns:
+        float: Memory usage in MB.
+    """
     return df.memory_usage(deep=True).sum() / 1024 ** 2
 
 def print_fancy_progress(current: int, total: int, prefix: str = '', length: int = 30):
     """
-    Prints a terminal-style progress bar with colored lines.
-    Style: Prefix -------_______ 50.0% (Green filled, Gray empty)
+    Displays a terminal-based progress bar.
+    
+    Args:
+        current: Current iteration or value.
+        total: Total iterations or target value.
+        prefix: Optional text to prepend to the bar.
+        length: Character length of the progress bar.
     """
     percent = current / total
     if percent > 1.0: percent = 1.0
     
     filled = int(length * percent)
     
-    # ANSI Colors
-    GREEN = "\033[32m" # Standard Green
-    GRAY = "\033[90m"  # Bright Black (Gray)
+    # ANSI Escape Codes for coloring
+    GREEN = "\033[32m"
+    GRAY = "\033[90m"
     RESET = "\033[0m"
     
-    # Character to use
     char = '-'
-    
-    # Build the bar: Green filled part + Gray empty part
     bar = f"{GREEN}{char * filled}{GRAY}{char * (length - filled)}{RESET}"
     
-    # \r returns to start of line
     print(f"\r{prefix} {bar} {percent:.1%}", end="", flush=True)
     
     if current == total:
-        print() # New line on completion
+        print() 
 
 def optimize_dtypes(df: pd.DataFrame, verbose: bool = True) -> pd.DataFrame:
     """
-    Downcast numeric types and convert low-cardinality objects to categories.
-    Reports memory reduction.
+    Optimizes the DataFrame's memory usage by downcasting numeric types and 
+    converting object types to categorical where appropriate.
+    
+    Args:
+        df: Input DataFrame.
+        verbose: If True, prints memory reduction statistics.
+        
+    Returns:
+        pd.DataFrame: Optimized DataFrame.
     """
     start_mem = get_memory_usage_mb(df)
     
@@ -47,7 +63,6 @@ def optimize_dtypes(df: pd.DataFrame, verbose: bool = True) -> pd.DataFrame:
         # Numeric Downcasting
         if pd.api.types.is_numeric_dtype(col_type):
             if pd.api.types.is_integer_dtype(col_type):
-                # Check range for integers
                 min_val, max_val = df[col].min(), df[col].max()
                 if min_val >= 0:
                     if max_val <= 255: df[col] = df[col].astype(np.uint8)
@@ -59,11 +74,10 @@ def optimize_dtypes(df: pd.DataFrame, verbose: bool = True) -> pd.DataFrame:
                     elif min_val >= -2147483648 and max_val <= 2147483647: df[col] = df[col].astype(np.int32)
 
             elif pd.api.types.is_float_dtype(col_type):
-                # We can often use float32 instead of float64 for our ranges
-                # Skip if column has NaN and needs float behavior, but float32 handles NaNs too.
+                # Downcast float64 to float32 for efficiency
                 df[col] = df[col].astype(np.float32)
 
-        # Categorical Conversion (simple heuristic: < 50% unique values)
+        # Categorical Conversion Heuristic
         elif pd.api.types.is_object_dtype(col_type):
             num_unique = len(df[col].unique())
             num_total = len(df)
@@ -78,12 +92,20 @@ def optimize_dtypes(df: pd.DataFrame, verbose: bool = True) -> pd.DataFrame:
     return df
 
 def save_refined(df: pd.DataFrame, filename: str, verbose: bool = True):
-    """Saves DataFrame to Parquet (preferred) or CSV using compression and performs GC."""
+    """
+    Persists the DataFrame to storage, preferring Parquet format with compression.
+    Falls back to CSV if Parquet writing fails.
+    
+    Args:
+        df: DataFrame to save.
+        filename: Base filename (e.g. 'data.csv').
+        verbose: If True, prints status messages.
+    """
     file_path = PROCESSED_DATA_DIR / f"{filename.replace('.csv', '.parquet')}"
     if verbose:
         print(f"Saving {filename} to {file_path}...")
     try:
-        # Use zstd compression for good balance of speed and size
+        # Use zstd compression for optimal speed/size ratio
         df.to_parquet(file_path, index=False, compression='zstd')
         if verbose:
             print("Done.")
@@ -91,47 +113,44 @@ def save_refined(df: pd.DataFrame, filename: str, verbose: bool = True):
         print(f"Error saving parquet: {e}. Falling back to CSV.")
         df.to_csv(PROCESSED_DATA_DIR / filename, index=False)
     
-    # Force Garbage Collection to free memory immediately after save
+    # Trigger Garbage Collection
     gc.collect()
 
 def clean_string_columns(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Trims whitespace from string columns and optionally standardizes format.
-    Safely handles NaNs.
+    Trims leading/trailing whitespace from string columns.
+    Safe for mixed types and NaN values.
     """
     for col in df.columns:
-        # Check if column is object/string and not categorical
         if pd.api.types.is_object_dtype(df[col]) or pd.api.types.is_string_dtype(df[col]):
             if isinstance(df[col].dtype, pd.CategoricalDtype):
                 continue
             
-            # Apply .str.strip() which is NaN-safe for object columns containing strings/NaNs
             try:
-                # This works if the column is of object dtype with strings.
-                # If it contains mixed types (int and str), .str might fail or result in NaNs for non-strings depending on pandas version.
-                # Safe approach: convert to string only if it's not null?
-                # Actually, .str accessor usually handles NaN gracefully by keeping it NaN.
                 df[col] = df[col].str.strip()
             except AttributeError:
-                # Column might not support .str accessor (e.g. if it's all integers cast to object?)
                 pass
                 
     return df
 
 def enforce_referential_integrity(df: pd.DataFrame, col_name: str, valid_ids: set) -> tuple[pd.DataFrame, int]:
     """
-    Drops rows where col_name is not in valid_ids.
-    Returns (cleaned_df, num_dropped).
+    Filters the DataFrame to ensure all values in `col_name` exist within `valid_ids`.
+    
+    Args:
+        df: Input DataFrame.
+        col_name: The foreign key column to validate.
+        valid_ids: A set of valid primary keys.
+        
+    Returns:
+        tuple: (Filtered DataFrame, number of rows dropped).
     """
     if col_name not in df.columns:
         return df, 0
     
     initial_rows = len(df)
     
-    # Ensure compatible types for matching
-    # Helper to infer type for safety? Assuming ID types match (usually int or string)
-    # We'll rely on the caller ensuring types match or just try matching.
-    
+    # Filter rows where the foreign key is present in the valid check list
     df = df[df[col_name].isin(valid_ids)]
     
     dropped = initial_rows - len(df)

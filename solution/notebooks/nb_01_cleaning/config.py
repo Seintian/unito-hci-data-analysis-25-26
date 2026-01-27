@@ -1,3 +1,7 @@
+"""
+Configuration settings for the data cleaning pipeline.
+Defines the list of auxiliary files to be processed.
+"""
 
 REMAINING_FILES = [
     "person_details.csv",

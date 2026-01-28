@@ -176,14 +176,18 @@ def clean_ratings_chunk_logic(chunk: pd.DataFrame, valid_anime_ids: Optional[Set
 
     # 1. Referential Integrity
     if valid_anime_ids is not None:
-        chunk, dropped = enforce_referential_integrity(chunk, 'anime_id', valid_anime_ids)
-        metrics['dropped_orphans'] = dropped
+        # Check for orphans but DO NOT drop them
+        # chunk, dropped = enforce_referential_integrity(chunk, 'anime_id', valid_anime_ids)
+        if 'anime_id' in chunk.columns:
+            orphan_mask = ~chunk['anime_id'].isin(valid_anime_ids)
+            metrics['dropped_orphans'] = orphan_mask.sum()
+            # chunk = chunk[~orphan_mask] # previously dropped
 
     # 2. Drop entries with valid Username
     if 'username' in chunk.columns:
         missing_user_mask = chunk['username'].isna()
         metrics['dropped_username'] = missing_user_mask.sum()
-        chunk = chunk.dropna(subset=['username'])
+        # chunk = chunk.dropna(subset=['username']) # previously dropped
 
     # 3. Score Validation
     if 'score' in chunk.columns:

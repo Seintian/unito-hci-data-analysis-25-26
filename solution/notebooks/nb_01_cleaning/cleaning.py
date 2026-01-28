@@ -174,34 +174,19 @@ def clean_ratings_chunk_logic(chunk: pd.DataFrame, valid_anime_ids: Optional[Set
         'dropped_orphans': 0
     }
 
-    # 1. Referential Integrity
-    if valid_anime_ids is not None:
-        # Check for orphans but DO NOT drop them
-        # chunk, dropped = enforce_referential_integrity(chunk, 'anime_id', valid_anime_ids)
-        if 'anime_id' in chunk.columns:
-            orphan_mask = ~chunk['anime_id'].isin(valid_anime_ids)
-            metrics['dropped_orphans'] = orphan_mask.sum()
-            # chunk = chunk[~orphan_mask] # previously dropped
-
-    # 2. Drop entries with valid Username
-    if 'username' in chunk.columns:
-        missing_user_mask = chunk['username'].isna()
-        metrics['dropped_username'] = missing_user_mask.sum()
-        # chunk = chunk.dropna(subset=['username']) # previously dropped
-
-    # 3. Score Validation
+    # 1. Score Validation
     if 'score' in chunk.columns:
         chunk = chunk[(chunk['score'] >= 0) & (chunk['score'] <= 10)]
 
-    # 4. Impute Rewatch Status
+    # 2. Impute Rewatch Status
     if 'is_rewatching' in chunk.columns:
         missing_rewatch_mask = chunk['is_rewatching'].isna()
         metrics['rewatch_imputed'] = missing_rewatch_mask.sum()
 
-    # 5. String Cleaning
+    # 3. String Cleaning
     chunk = clean_string_columns(chunk)
 
-    # 6. Type Optimization
+    # 4. Type Optimization
     # Use appropriate numpy types for memory efficiency
     dtype_map = {
         'anime_id': np.int32,

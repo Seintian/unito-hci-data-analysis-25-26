@@ -71,7 +71,7 @@ def process_file_stream(file_path: str, chunk_size: int = CHUNK_SIZE) -> StreamS
                 # Configure robust options
                 # newlines_in_values=True allows robustly handling fields containing line breaks
                 parse_options = pa_csv.ParseOptions(newlines_in_values=True)
-                
+
                 # block_size=10MB: Larger blocks can improve performance on high-throughput IO
                 read_options = pa_csv.ReadOptions(block_size=PYARROW_BLOCK_SIZE) 
 

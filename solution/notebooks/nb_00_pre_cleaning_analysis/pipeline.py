@@ -1,5 +1,3 @@
-import os
-from IPython.display import display, Markdown
 from .processing import process_file_stream
 from .reporting import report_stats
 
@@ -8,19 +6,13 @@ def analyze_file(file_path: str) -> None:
     Orchestrates the pre-cleaning analysis pipeline.
 
     1. Prints header.
-    2. Streams file to update stats.
-    3. Prints comprehensive report.
+    2. Displays native pandas info (memory, types).
+    3. Streams file to update detailed stats.
+    4. Prints comprehensive report.
     """
 
-    filename = os.path.basename(file_path)
-    # Emojis in display(...) are fine as they are not source code literals but data
-    display(Markdown(f"### Analysis: `{filename}`"))
-    print(f"{'='*40}")
-
-    # Process
+    # 2. Deep Analysis (Stream/PyArrow)
     stats = process_file_stream(file_path)
 
-    # Report
+    # 3. Report
     report_stats(stats)
-
-    print(f"{'='*40}\n")

@@ -28,10 +28,15 @@ def print_fancy_progress(current: int, total: int, prefix: str = '', length: int
         length: Character length of the progress bar.
     """
 
-    percent = current / total
-    if percent > 1.0: percent = 1.0
 
-    filled = int(length * percent)
+    if total > 0:
+        percent = current / total
+        if percent > 1.0: percent = 1.0
+        filled = int(length * percent)
+    else:
+        # Indeterminate progress
+        percent = 0.0
+        filled = 0
 
     # ANSI Escape Codes for coloring
     GREEN = "\033[32m"
@@ -39,11 +44,15 @@ def print_fancy_progress(current: int, total: int, prefix: str = '', length: int
     RESET = "\033[0m"
 
     char = '-'
-    bar = f"{GREEN}{char * filled}{GRAY}{char * (length - filled)}{RESET}"
 
-    print(f"\r{prefix} {bar} {percent:.1%}", end="", flush=True)
+    if total > 0:
+        bar = f"{GREEN}{char * filled}{GRAY}{char * (length - filled)}{RESET}"
+        print(f"\r{prefix} {bar} {percent:.1%}", end="", flush=True)
+    else:
+        # Indeterminate spinner or just counter
+        print(f"\r{prefix} {current} items processed...", end="", flush=True)
 
-    if current == total:
+    if total > 0 and current == total:
         print()
 
 def get_available_memory() -> int:

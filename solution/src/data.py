@@ -4,6 +4,7 @@ Dataset definitions and loading logic.
 
 from pathlib import Path
 import pandas as pd
+import pandas.io.parsers as pd_parsers
 from .common import RAW_DATA_DIR, PROCESSED_DATA_DIR
 from .utils import load_csv_smart
 
@@ -35,12 +36,13 @@ PROCESSED_FILES = {
     'characters': 'characters.parquet',
     'favs': 'favs.parquet',
     'ratings': 'ratings.parquet',
-    'characters_nicknames': 'characters_nicknames.parquet',
-    'characters_anime_works': 'characters_anime_works.parquet',
+    'character_nicknames': 'character_nicknames.parquet',
+    'character_anime_works': 'character_anime_works.parquet',
     'person': 'person.parquet',
     'person_details': 'person_details.parquet',
     'person_anime_works': 'person_anime_works.parquet',
-    'person_voice_works': 'person_voice_works.parquet'
+    'person_voice_works': 'person_voice_works.parquet',
+    'person_alternate_names': 'person_alternate_names.parquet'
 }
 
 def get_raw_path(dataset_name: str) -> Path:
@@ -50,7 +52,7 @@ def get_raw_path(dataset_name: str) -> Path:
         raise ValueError(f"Unknown dataset: {dataset_name}. Available: {list(RAW_FILES.keys())}")
     return RAW_DATA_DIR / filename
 
-def load_raw(dataset_name: str, **kwargs) -> pd.DataFrame | pd.io.parsers.TextFileReader:
+def load_raw(dataset_name: str, **kwargs) -> pd.DataFrame | pd_parsers.TextFileReader:
     """Loads a raw dataset using smart loading."""
     path = get_raw_path(dataset_name)
     return load_csv_smart(path, **kwargs)

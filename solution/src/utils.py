@@ -4,7 +4,7 @@ Shared utilities for the Data Analysis project.
 
 import pandas as pd
 from pathlib import Path
-from typing import Union, Generator, Any
+from typing import Union, Any, Iterable
 
 try:
     import pyarrow.csv as pa_csv
@@ -28,7 +28,6 @@ def print_fancy_progress(current: int, total: int, prefix: str = '', length: int
         length: Character length of the progress bar.
     """
 
-
     if total > 0:
         percent = current / total
         if percent > 1.0: percent = 1.0
@@ -50,7 +49,7 @@ def print_fancy_progress(current: int, total: int, prefix: str = '', length: int
         print(f"\r{prefix} {bar} {percent:.1%}", end="", flush=True)
     else:
         # Indeterminate spinner or just counter
-        print(f"\r{prefix} {current} items processed...", end="", flush=True)
+        print(f"\r{prefix} {current} items processed... ", end="", flush=True)
 
     if total > 0 and current == total:
         print()
@@ -124,18 +123,17 @@ def load_csv_smart(
 
     return pd.read_csv(file_path, **kwargs)
 
-
 def save_refined(
-    df: pd.DataFrame, 
+    df: Union[pd.DataFrame, Iterable[pd.DataFrame]],
     path: Union[str, Path], 
     format: str = 'parquet',
     **kwargs: Any
 ) -> None:
     """
-    Saves a DataFrame to the specified format (parquet or csv) with optimized settings.
+    Saves a DataFrame or Iterable of DataFrames to the specified format (parquet or csv) with optimized settings.
 
     Args:
-        df: DataFrame to save.
+        df: DataFrame or Iterable of DataFrames to save.
         path: Destination path.
         format: 'parquet' or 'csv'.
         **kwargs: Additional arguments for to_parquet/to_csv.
@@ -146,16 +144,56 @@ def save_refined(
 
     print(f"Saving to {path} ({format})...")
 
+    # Helper to check if it's an iterable but not a DataFrame
+    is_iterable = isinstance(df, Iterable) and not isinstance(df, pd.DataFrame)
+
     if format == 'parquet':
-        # Default to pyarrow engine and snappy compression for balance
-        defaults = {'engine': 'pyarrow', 'compression': 'snappy', 'index': False}
+        # Default settings
+        defaults = {'compression': 'snappy', 'index': False}
         defaults.update(kwargs)
-        df.to_parquet(path, **defaults)
+
+        if is_iterable:
+            # Import pyarrow here to avoid hard dependency at module level if possible, 
+            # though we checked for pa_csv earlier. We need pyarrow.parquet.
+            import pyarrow as pa
+            import pyarrow.parquet as pq
+
+            writer = None
+            try:
+                for i, chunk in enumerate(df):
+                    table = pa.Table.from_pandas(chunk, preserve_index=defaults.get('index', False))
+
+                    if writer is None:
+                        # Initialize writer with schema from first chunk
+                        writer = pq.ParquetWriter(path, table.schema, compression=defaults['compression'])
+
+                    writer.write_table(table)
+            finally:
+                if writer:
+                    writer.close()
+        else:
+            # Single DataFrame
+            # Default to pyarrow engine
+            if 'engine' not in defaults:
+                defaults['engine'] = 'pyarrow'
+            df.to_parquet(path, **defaults)
 
     elif format == 'csv':
         defaults = {'index': False}
         defaults.update(kwargs)
-        df.to_csv(path, **defaults)
+
+        if is_iterable:
+            # CSV appending mode
+            # Warning: This can be slow and doesn't handle headers well for subsequent chunks unless managed.
+            # We assume first chunk writes header, others don't.
+            first_chunk = True
+            for chunk in df:
+                mode = 'w' if first_chunk else 'a'
+                header = first_chunk # Only write header for first chunk
+                chunk.to_csv(path, mode=mode, header=header, **defaults)
+                first_chunk = False
+        else:
+            df.to_csv(path, **defaults)
 
     else:
         raise ValueError(f"Unsupported format: {format}")

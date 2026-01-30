@@ -1,6 +1,6 @@
 import pandas as pd
 import numpy as np
-from typing import Optional, Tuple, Dict
+from typing import Optional, Tuple, Dict, Iterable, Union, Generator, cast, Any
 
 def rename_columns(df: pd.DataFrame) -> pd.DataFrame:
     """
@@ -61,42 +61,99 @@ def get_memory_usage_mb(df: pd.DataFrame) -> float:
 
     return df.memory_usage(deep=True).sum() / 1024 ** 2
 
-def optimize_dtypes(df: pd.DataFrame, verbose: bool = True) -> pd.DataFrame:
+
+def optimize_dtypes(df: Union[pd.DataFrame, Iterable[pd.DataFrame]], verbose: bool = True) -> Union[pd.DataFrame, Generator[pd.DataFrame, None, None]]:
     """
     Optimizes the DataFrame's memory usage by downcasting numeric types and 
     converting object types to categorical where appropriate.
 
+    Supports both single DataFrame and Iterable of DataFrames (chunks).
+
     Args:
-        df: Input DataFrame.
+        df: Input DataFrame or Iterable of DataFrames.
         verbose: If True, prints memory reduction statistics.
 
     Returns:
-        pd.DataFrame: Optimized DataFrame.
+        pd.DataFrame or Generator[pd.DataFrame]: Optimized DataFrame(s).
     """
 
-    start_mem = get_memory_usage_mb(df)
+    # Helper function for single DF optimization
+    def _optimize_single(d_in: pd.DataFrame, verbose: bool) -> pd.DataFrame:
+        # Working on a copy to allow reversion
+        d = d_in.copy()
 
-    for col in df.columns:
-        col_type = df[col].dtype
+        start_mem = get_memory_usage_mb(d_in) # Compare against original
+        changes = []
 
-        if pd.api.types.is_integer_dtype(col_type):
-            df[col] = pd.to_numeric(df[col], downcast='integer')
-        elif pd.api.types.is_float_dtype(col_type):
-            df[col] = pd.to_numeric(df[col], downcast='float')
+        for col in d.columns:
+            col_type = d[col].dtype
+            new_type = None
+            extra_info = ""
 
-        # Categorical Conversion Heuristic
-        elif pd.api.types.is_object_dtype(col_type):
-            num_unique = len(df[col].unique())
-            num_total = len(df)
-            if num_total > 100 and (num_unique / num_total < 0.5):
-                df[col] = df[col].astype('category')
+            if pd.api.types.is_integer_dtype(col_type):
+                d[col] = pd.to_numeric(d[col], downcast='integer')
+                new_type = d[col].dtype
+            elif pd.api.types.is_float_dtype(col_type):
+                d[col] = pd.to_numeric(d[col], downcast='float')
 
-    end_mem = get_memory_usage_mb(df)
-    if verbose:
+                # Attempt conversion to Nullable Integer (Int32/Int64)
+                # If all non-NaN values are integers
+                no_nans = d[col].dropna()
+                if len(no_nans) > 0 and np.all(np.mod(no_nans, 1) == 0):
+                    # Check range to decide Int32 vs Int64
+                    min_val, max_val = no_nans.min(), no_nans.max()
+                    if min_val >= -2_147_483_648 and max_val <= 2_147_483_647:
+                        d[col] = d[col].astype("Int32")
+                    else:
+                        d[col] = d[col].astype("Int64")
+
+                new_type = d[col].dtype
+
+            # Categorical Conversion Heuristic
+            elif pd.api.types.is_object_dtype(col_type):
+                num_unique = len(d[col].unique())
+                num_total = len(d)
+                if num_total > 100 and (num_unique / num_total < 0.5):
+                    d[col] = d[col].astype('category')
+                    new_type = 'category'
+                    extra_info = f" (card: {num_unique}/{num_total})"
+
+            if new_type and str(new_type) != str(col_type): 
+                changes.append(f"{col}: {col_type}->{new_type}{extra_info}")
+
+        end_mem = get_memory_usage_mb(d)
         reduction = 100 * (start_mem - end_mem) / start_mem
-        print(f"Memory optimization: {start_mem:.2f} MB -> {end_mem:.2f} MB ({reduction:.1f}% reduction)")
 
-    return df
+        # Check if memory usage increased (regression)
+        if end_mem > start_mem:
+            if verbose:
+                print(f"Memory optimization: {start_mem:.2f} MB -> {end_mem:.2f} MB ({reduction:.1f}% reduction)", end="", flush=True)
+                print(f"\n   Warning: Memory increased! Reverting changes.")
+            return d_in # Return original
+
+        # Changes accepted
+        if verbose:
+            print(f"Memory optimization: {start_mem:.2f} MB -> {end_mem:.2f} MB ({reduction:.1f}% reduction)", end="", flush=True)
+
+            if changes:
+                print(f"\n   Changes: {', '.join(changes)}")
+            else:
+                print(" (No changes)")
+
+        return d
+
+    if isinstance(df, pd.DataFrame):
+        return _optimize_single(df, verbose)
+
+    # Handle Iterable
+    def _generator():
+        # Help type checker know this is an Iterable of DataFrames, not a single DataFrame
+        # explicitly, avoiding the ambiguity that causes the Hashable error.
+        iterator = cast(Iterable[pd.DataFrame], df)
+        for i, chunk in enumerate(iterator):
+            yield _optimize_single(chunk, verbose=verbose)
+
+    return _generator()
 
 def clean_string_columns(df: pd.DataFrame) -> pd.DataFrame:
     """
@@ -140,7 +197,7 @@ def enforce_referential_integrity(df: pd.DataFrame, col_name: str, valid_ids: se
     dropped = initial_rows - len(df)
     return df, dropped
 
-def resolve_content_duplicates(df: pd.DataFrame, primary_key: str) -> Tuple[pd.DataFrame, Dict[str, any]]:
+def resolve_content_duplicates(df: pd.DataFrame, primary_key: str) -> Tuple[pd.DataFrame, Dict[str, Any]]:
     """
     Identifies rows with identical content (excluding the primary key).
     Keeps the row with the 'best' primary key (e.g., non-null, or lowest numerical value).
@@ -169,6 +226,8 @@ def resolve_content_duplicates(df: pd.DataFrame, primary_key: str) -> Tuple[pd.D
     if not dupes_mask.any():
         return df, metrics
 
+    # It has some duplicates
+
     metrics['duplicates_found'] = int(dupes_mask.sum())
 
     # Process duplicates to build the map
@@ -180,6 +239,8 @@ def resolve_content_duplicates(df: pd.DataFrame, primary_key: str) -> Tuple[pd.D
     original_indices_to_drop = []
 
     for _, group in grouped:
+        group = cast(pd.DataFrame, group)
+
         if len(group) < 2:
             continue
 
@@ -206,7 +267,7 @@ def resolve_content_duplicates(df: pd.DataFrame, primary_key: str) -> Tuple[pd.D
 
     return df_clean, metrics
 
-def print_cleaning_report(step_name: str, metrics: Dict[str, any]):
+def print_cleaning_report(step_name: str, metrics: Dict[str, Any]):
     """
     Prints a formatted report of the cleaning step.
     """
@@ -215,7 +276,13 @@ def print_cleaning_report(step_name: str, metrics: Dict[str, any]):
     for key, value in metrics.items():
         if key == 'id_map':
             print(f"  ID Mappings Created: {len(value)}")
+            if value:
+                # Print first 5 mappings as sample
+                sample = list(value.items())[:5]
+                print(f"    Sample: {sample} ...")
+
         elif isinstance(value, float):
             print(f"  {key}: {value:.2f}")
+
         else:
             print(f"  {key}: {value}")

@@ -3,6 +3,7 @@ import numpy as np
 import scipy.stats as stats
 from typing import Dict, Any, List
 
+
 def analyze_moments(df: pd.DataFrame, numeric_cols: List[str] = None) -> pd.DataFrame:
     """
     Calculates the first four moments of statistics for numerical columns:
@@ -17,16 +18,17 @@ def analyze_moments(df: pd.DataFrame, numeric_cols: List[str] = None) -> pd.Data
     Returns:
         pd.DataFrame: A summary dataframe with the moments.
     """
+
     if numeric_cols is None:
         numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
 
     key_stats = []
-    
+
     for col in numeric_cols:
         series = df[col].dropna()
         if series.empty:
             continue
-            
+
         key_stats.append({
             'Column': col,
             'Mean': series.mean(),
@@ -36,7 +38,7 @@ def analyze_moments(df: pd.DataFrame, numeric_cols: List[str] = None) -> pd.Data
             'Skewness': series.skew(),
             'Kurtosis': series.kurt()
         })
-    
+
     return pd.DataFrame(key_stats).set_index('Column')
 
 def fit_distribution(series: pd.Series) -> Dict[str, Any]:
@@ -44,7 +46,7 @@ def fit_distribution(series: pd.Series) -> Dict[str, Any]:
     Tests various distributions (Normal, Log-Normal, Poisson) against the data
     to see which fits best. Uses Kolmogorov-Smirnov test for continuous 
     distributions (Normal, Log-Normal) and Chi-Square for discrete (Poisson).
-    
+
     Note: Poisson fitting is rudimentary here and assumes count data.
 
     Args:
@@ -55,7 +57,7 @@ def fit_distribution(series: pd.Series) -> Dict[str, Any]:
     """
     clean_series = series.dropna()
     results = {}
-    
+
     # Normal Test
     # kstest returns statistic, p-value. Higher p-value (>0.05) -> cannot reject null hypothesis (it IS normal)
     # However, for large datasets, even tiny deviations reject normalcy. 
@@ -86,6 +88,7 @@ def analyze_cardinality(df: pd.DataFrame, cat_cols: List[str] = None) -> pd.Data
     Returns:
         pd.DataFrame: Summary of cardinality.
     """
+
     if cat_cols is None:
         cat_cols = df.select_dtypes(include=['object', 'category']).columns.tolist()
 
@@ -95,7 +98,7 @@ def analyze_cardinality(df: pd.DataFrame, cat_cols: List[str] = None) -> pd.Data
     for col in cat_cols:
         unique_count = df[col].nunique()
         percentage = (unique_count / total_rows) * 100
-        
+
         # Heuristic classification
         if unique_count == total_rows:
             classification = 'Unique Key'
@@ -114,5 +117,5 @@ def analyze_cardinality(df: pd.DataFrame, cat_cols: List[str] = None) -> pd.Data
             'Percentage Unique': f"{percentage:.2f}%",
             'Classification': classification
         })
-        
+
     return pd.DataFrame(stats_list).set_index('Column')

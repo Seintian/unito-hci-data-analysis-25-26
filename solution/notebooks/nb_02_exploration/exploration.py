@@ -1,7 +1,6 @@
 import pandas as pd
 import numpy as np
-from typing import Tuple
-import scipy.stats as stats
+
 
 def calculate_controversy_metric(df_stats: pd.DataFrame) -> pd.DataFrame:
     """
@@ -40,5 +39,3 @@ def calculate_controversy_metric(df_stats: pd.DataFrame) -> pd.DataFrame:
     df_stats['controversy_std'] = np.sqrt(weighted_var)
 
     return df_stats
-
-

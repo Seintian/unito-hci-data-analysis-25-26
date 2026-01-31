@@ -1,6 +1,9 @@
 import pandas as pd
 import numpy as np
 from typing import Optional, Tuple, Dict, Iterable, Union, Generator, cast, Any
+from solution.src.data import load_raw
+from solution.src.common import PROCESSED_DATA_DIR
+
 
 def rename_columns(df: pd.DataFrame) -> pd.DataFrame:
     """
@@ -62,7 +65,7 @@ def get_memory_usage_mb(df: pd.DataFrame) -> float:
     return df.memory_usage(deep=True).sum() / 1024 ** 2
 
 
-def optimize_dtypes(df: Union[pd.DataFrame, Iterable[pd.DataFrame]], verbose: bool = True) -> Union[pd.DataFrame, Generator[pd.DataFrame, None, None]]:
+def optimize_dtypes(df: Union[pd.DataFrame, Iterable[pd.DataFrame]], verbose: bool = True, check_intern_loss: bool = True) -> Union[pd.DataFrame, Generator[pd.DataFrame, None, None]]:
     """
     Optimizes the DataFrame's memory usage by downcasting numeric types and 
     converting object types to categorical where appropriate.
@@ -72,6 +75,7 @@ def optimize_dtypes(df: Union[pd.DataFrame, Iterable[pd.DataFrame]], verbose: bo
     Args:
         df: Input DataFrame or Iterable of DataFrames.
         verbose: If True, prints memory reduction statistics.
+        check_intern_loss: If True, checks for increase in unique object creation (slow).
 
     Returns:
         pd.DataFrame or Generator[pd.DataFrame]: Optimized DataFrame(s).
@@ -82,7 +86,39 @@ def optimize_dtypes(df: Union[pd.DataFrame, Iterable[pd.DataFrame]], verbose: bo
         # Working on a copy to allow reversion
         d = d_in.copy()
 
-        start_mem = get_memory_usage_mb(d_in) # Compare against original
+        # Track memory and potential string interning status
+        def get_col_metrics(df_obj):
+            col_metrics = {}
+            for col in df_obj.columns:
+                mem = df_obj[col].memory_usage(deep=True)
+                dtype = df_obj[col].dtype
+                # Check for string interning / unique object count explicitly for object columns
+                num_unique_objs = -1
+
+                if check_intern_loss and pd.api.types.is_object_dtype(dtype):
+                    # .map(id).nunique() counts how many unique python objects are referenced
+                    # If this is significantly lower than len(df) or even num_unique_values 
+                    # it means we have interning/reuse.
+                    try:
+                        num_unique_objs = df_obj[col].map(id).nunique()
+                    except Exception:
+                        pass
+
+                col_metrics[col] = {
+                    'mem': mem,
+                    'dtype': dtype,
+                    'unique_objs': num_unique_objs
+                }
+            return col_metrics
+
+        # Only compute expensive metrics if verbose or we need to check interning
+        if verbose or check_intern_loss:
+            start_metrics = get_col_metrics(d_in)
+            start_mem = sum(m['mem'] for m in start_metrics.values()) / 1024**2
+        else:
+            start_mem = get_memory_usage_mb(d_in)
+            start_metrics = {}
+
         changes = []
 
         for col in d.columns:
@@ -97,10 +133,8 @@ def optimize_dtypes(df: Union[pd.DataFrame, Iterable[pd.DataFrame]], verbose: bo
                 d[col] = pd.to_numeric(d[col], downcast='float')
 
                 # Attempt conversion to Nullable Integer (Int32/Int64)
-                # If all non-NaN values are integers
                 no_nans = d[col].dropna()
                 if len(no_nans) > 0 and np.all(np.mod(no_nans, 1) == 0):
-                    # Check range to decide Int32 vs Int64
                     min_val, max_val = no_nans.min(), no_nans.max()
                     if min_val >= -2_147_483_648 and max_val <= 2_147_483_647:
                         d[col] = d[col].astype("Int32")
@@ -118,27 +152,70 @@ def optimize_dtypes(df: Union[pd.DataFrame, Iterable[pd.DataFrame]], verbose: bo
                     new_type = 'category'
                     extra_info = f" (card: {num_unique}/{num_total})"
 
-            if new_type and str(new_type) != str(col_type): 
+            if new_type and str(new_type) != str(col_type):
+                # Just log the type change here, detailed metrics come later
                 changes.append(f"{col}: {col_type}->{new_type}{extra_info}")
 
-        end_mem = get_memory_usage_mb(d)
-        reduction = 100 * (start_mem - end_mem) / start_mem
+        # Recalculate metrics
+        if verbose or check_intern_loss:
+            end_metrics = get_col_metrics(d)
+            end_mem = sum(m['mem'] for m in end_metrics.values()) / 1024**2
+        else:
+            end_mem = get_memory_usage_mb(d)
 
-        # Check if memory usage increased (regression)
-        if end_mem > start_mem:
-            if verbose:
-                print(f"Memory optimization: {start_mem:.2f} MB -> {end_mem:.2f} MB ({reduction:.1f}% reduction)", end="", flush=True)
-                print(f"\n   Warning: Memory increased! Reverting changes.")
-            return d_in # Return original
+        diff = start_mem - end_mem
+        reduction = 100 * diff / start_mem if start_mem > 0 else 0
 
-        # Changes accepted
-        if verbose:
-            print(f"Memory optimization: {start_mem:.2f} MB -> {end_mem:.2f} MB ({reduction:.1f}% reduction)", end="", flush=True)
+        # Detailed Report Generation
+        report_lines = []
+        if verbose or end_mem > start_mem: # Force report if memory increased
+            report_lines.append(f"Memory optimization: {start_mem:.2f} MB -> {end_mem:.2f} MB ({reduction:.1f}% reduction)")
 
-            if changes:
-                print(f"\n   Changes: {', '.join(changes)}")
+            if start_metrics: # Only detailed report if we computed start metrics
+                # Identify columns with significant changes (good or bad)
+                # Sort by magnitude of change (absolute bytes)
+                col_changes = []
+                for col in d.columns:
+                    m_start = start_metrics.get(col)
+                    m_end = end_metrics.get(col)
+
+                    if not m_start or not m_end: continue
+
+                    mem_diff_bytes = m_end['mem'] - m_start['mem']
+
+                    # Only report if changed
+                    if mem_diff_bytes != 0 or str(m_start['dtype']) != str(m_end['dtype']):
+                        col_changes.append({
+                            'col': col,
+                            'diff': mem_diff_bytes,
+                            'desc': f"{col}: {m_start['dtype']}->{m_end['dtype']} ({m_start['mem']/1024:.1f}KB -> {m_end['mem']/1024:.1f}KB)"
+                        })
+
+                        # Check for object intern loss
+                        if m_start['unique_objs'] != -1 and m_end['unique_objs'] != -1:
+                            # If unique objects increased, we lost sharing
+                            if m_end['unique_objs'] > m_start['unique_objs']:
+                                col_changes[-1]['desc'] += f" [INTERN LOSS: {m_start['unique_objs']}->{m_end['unique_objs']} objs]"
+
+                # Print top changes
+                col_changes.sort(key=lambda x: x['diff'], reverse=True) # Biggest increase first
+                for c in col_changes:
+                    if c['diff'] > 0:
+                        report_lines.append(f"   CREATED overhead: {c['desc']} (+{c['diff']/1024:.1f} KB)")
+                    else:
+                        report_lines.append(f"   Optimized: {c['desc']}")
             else:
-                print(" (No changes)")
+                # Fallback concise report
+                if changes:
+                    report_lines.append(f"   Changes: {', '.join(changes)}")
+
+        # Output the report
+        if report_lines and verbose:
+            print("\n".join(report_lines), flush=True)
+
+        if end_mem > start_mem:
+            print(f"   Warning: Memory increased! Reverting changes.")
+            return d_in # Return original
 
         return d
 
@@ -154,6 +231,105 @@ def optimize_dtypes(df: Union[pd.DataFrame, Iterable[pd.DataFrame]], verbose: bo
             yield _optimize_single(chunk, verbose=verbose)
 
     return _generator()
+
+def process_ratings_chunk(chunk: pd.DataFrame, valid_anime_ids: set, id_map_anime: dict) -> Tuple[pd.DataFrame, Dict[str, Any]]:
+    """
+    Processes a single chunk of the ratings dataset.
+    Designed to be pickleable for parallel processing.
+    """
+    # Fix for joblib read-only memmap issue
+    chunk = chunk.copy()
+
+    chunk_metrics = {
+        'rows_read': len(chunk),
+        'dropped_orphans': 0,
+        'fk_remapped': 0,
+        'fk_samples': []
+    }
+
+    # 1. Remap FKs
+    if id_map_anime:
+        mask = chunk['anime_id'].isin(id_map_anime.keys())
+        if mask.any():
+            # Log sample remappings (limited to avoid huge pickles)
+            mask_sample = mask & ~chunk['anime_id'].isna()
+            if mask_sample.any():
+                # Just take one sample per chunk to keep it light
+                old_values = chunk.loc[mask_sample, 'anime_id'].head(1)
+                new_values = old_values.map(id_map_anime)
+                chunk_metrics['fk_samples'].append(dict(zip(old_values, new_values)))
+
+            chunk.loc[mask, 'anime_id'] = chunk.loc[mask, 'anime_id'].map(id_map_anime)
+            chunk_metrics['fk_remapped'] += int(mask.sum())
+
+    # 2. Filter Orphans
+    initial_len = len(chunk)
+    chunk = chunk[chunk['anime_id'].isin(valid_anime_ids)]
+    chunk_metrics['dropped_orphans'] += (initial_len - len(chunk))
+
+    # 3. Optimize (Disable verbose and expensive checks for speed)
+    chunk = optimize_dtypes(chunk, verbose=False, check_intern_loss=False)
+
+    return chunk, chunk_metrics
+
+from solution.src.utils import save_refined
+
+def process_generic_dataset(dataset_name: str, processed_files_map: Dict[str, str]) -> Dict[str, Any]:
+    """
+    Processes a generic dataset end-to-end: Load -> Clean -> Optimize -> Save.
+    Designed for parallel execution.
+    """
+    # 1. Read
+    df = load_raw(dataset_name)
+    
+    # Stats Capture
+    initial_rows = len(df)
+    initial_mem = get_memory_usage_mb(df)
+    actions = []
+
+    # 2. Clean (Generic Logic)
+    df, metrics = standardize_dataset(df)
+    if metrics.get('duplicates_dropped', 0) > 0:
+        actions.append(f"Deduplicated ({metrics['duplicates_dropped']} rows)")
+
+    df.dropna(how='all', inplace=True)
+
+    # Specific Logic
+    if dataset_name == "person_details":
+        if 'birthday' in df.columns:
+            df['birthday'] = pd.to_datetime(df['birthday'], errors='coerce')
+            actions.append("Date Parsing (birthday)")
+    
+    if dataset_name == "profiles":
+        if 'joined' in df.columns:
+            df['joined'] = pd.to_datetime(df['joined'], errors='coerce')
+            actions.append("Date Parsing (joined)")
+
+    # Capture Memory After Cleaning (before optimization)
+    mem_cleaned = get_memory_usage_mb(df)
+
+    # 3. Optimize (Disable verbose)
+    df = optimize_dtypes(df, verbose=False, check_intern_loss=False)
+
+    # Capture Final Stats
+    final_rows = len(df)
+    final_mem = get_memory_usage_mb(df)
+
+    # 4. Save
+    out_filename = processed_files_map.get(dataset_name)
+    if out_filename:
+        out_path = PROCESSED_DATA_DIR / out_filename
+        save_refined(df, out_path, format='parquet')
+
+    return {
+        'file': dataset_name,
+        'rows_src': initial_rows,
+        'rows_dst': final_rows,
+        'mem_src': initial_mem,
+        'mem_cleaned': mem_cleaned,
+        'mem_dst': final_mem,
+        'actions': actions
+    }
 
 def clean_string_columns(df: pd.DataFrame) -> pd.DataFrame:
     """
@@ -286,3 +462,23 @@ def print_cleaning_report(step_name: str, metrics: Dict[str, Any]):
 
         else:
             print(f"  {key}: {value}")
+
+def print_fk_remapping_report(samples: list[dict]):
+    """
+    Prints a user-friendly report of Foreign Key remappings.
+    Args:
+        samples: List of dictionaries, each containing {old_id: new_id} mappings.
+    """
+
+    if not samples:
+        return
+
+    print("\n--- FK Remapping (Duplicate Merges) ---")
+    print("The following Foreign Keys (Anime IDs) were updated because the original ID")
+    print("was identified as a duplicate and merged into a canonical ID.")
+    print("-" * 60)
+
+    for i, sample_dict in enumerate(samples, 1):
+        items_str = ", ".join([f"{k} -> {v:.0f}" for k, v in sample_dict.items()])
+        print(f"Batch {i}: {items_str}")
+    print("-" * 60)

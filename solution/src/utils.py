@@ -87,27 +87,40 @@ def load_csv_smart(
     if not file_path.exists():
         raise FileNotFoundError(f"File not found: {file_path}")
 
-    # Safety factor for RAM usage (PyArrow needs ~3-4x file size just in case)
-    RAM_SAFETY_FACTOR = 4.0
+    # Safety factor for RAM usage (PyArrow needs ~3-4x file size just in case, Pandas needs ~5-10x)
+    RAM_SAFETY_FACTOR_PYARROW = 4.0
+    RAM_SAFETY_FACTOR_PANDAS = 6.0
+    DEFAULT_CHUNK_SIZE = 5_000_000
 
-    # Determine if chunking is requested
+    file_size = file_path.stat().st_size
+    available_ram = get_available_memory()
+    
+    # Determine if chunking is explicitly requested
     is_chunked = (chunk_size is not None) or kwargs.get('iterator', False) or ('chunksize' in kwargs)
 
-    # Try PyArrow if requested, not chunked, and module is available
+    # DYNAMIC CHUNKING STRATEGY
+    # If not explicitly chunked, checks if we have enough RAM to load full file safely.
+    # If not, FORCES chunking.
+    if not is_chunked and psutil:
+        # Check for Pandas C-Engine RAM requirements (fallback path)
+        # We check this even if we try pyarrow first, because if pyarrow fails we failover to this.
+        if available_ram < (file_size * RAM_SAFETY_FACTOR_PANDAS):
+            print(f"  [WARN] Low RAM detected ({available_ram/1e9:.1f}GB) for file {file_path.name} ({file_size/1e9:.1f}GB).")
+            print(f"  -> Falling back to dynamic chunking (chunksize={DEFAULT_CHUNK_SIZE}).")
+            chunk_size = DEFAULT_CHUNK_SIZE
+            is_chunked = True
+            # Forcing chunksize into kwargs will make read_csv return an iterator
+
+    # Try PyArrow if requested, NOT chunked, and module is available
     if use_pyarrow and pa_csv and not is_chunked:
         try:
-            file_size = file_path.stat().st_size
-            available_ram = get_available_memory()
-
-            # Pre-flight check
-            if psutil and available_ram < (file_size * RAM_SAFETY_FACTOR):
-                print(f"Using standard pandas (File {file_size/1e6:.1f}MB vs RAM {available_ram/1e6:.1f}MB)")
+            # Pre-flight check specific for PyArrow
+            if psutil and available_ram < (file_size * RAM_SAFETY_FACTOR_PYARROW):
+                print(f"  [INFO] Skipping PyArrow for {file_path.name} (Ram strictness).")
             else:
                 print(f"Loading {file_path.name} with PyArrow...")
-
                 # Configure ParseOptions to handle newlines in values
                 parse_options = pa_csv.ParseOptions(newlines_in_values=True)
-
                 return pa_csv.read_csv(file_path, parse_options=parse_options).to_pandas()
 
         except Exception as e:

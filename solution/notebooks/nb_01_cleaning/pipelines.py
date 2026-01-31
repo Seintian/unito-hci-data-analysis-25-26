@@ -1,5 +1,5 @@
 import pandas as pd
-from typing import Tuple, Dict, Any
+from typing import Tuple, Dict, Any, Iterable
 from solution.src.data import load_raw
 from solution.src.common import PROCESSED_DATA_DIR
 from solution.src.utils import save_refined
@@ -7,9 +7,10 @@ from .cleaning import standardize_column_names_and_text, merge_content_duplicate
 from .optimizations import get_memory_usage_mb, reduce_memory_usage
 
 
-def process_ratings_batch(chunk: pd.DataFrame, valid_anime_ids: set, id_map_anime: dict) -> Tuple[pd.DataFrame, Dict[str, Any]]:
+def process_ratings_batch(chunk: pd.DataFrame, id_map_anime: dict) -> Tuple[pd.DataFrame, Dict[str, Any]]:
     """
-    Processes a batch of ratings: REMAPS foreign keys, REMOVES orphans, and REDUCES memory.
+    Processes a batch of ratings: REMAPS foreign keys and REDUCES memory.
+    Note: Orphans are KEPT (not dropped).
     """
 
     # Defensive copy for joblib safety
@@ -17,7 +18,6 @@ def process_ratings_batch(chunk: pd.DataFrame, valid_anime_ids: set, id_map_anim
 
     metrics = {
         'rows_read': len(chunk),
-        'dropped_orphans': 0,
         'fk_remapped': 0,
         'fk_samples': []
     }
@@ -26,12 +26,7 @@ def process_ratings_batch(chunk: pd.DataFrame, valid_anime_ids: set, id_map_anim
     if id_map_anime:
         _apply_id_remapping(chunk, 'anime_id', id_map_anime, metrics)
 
-    # 2. Referential Integrity (Drop Orphans)
-    initial_len = len(chunk)
-    chunk = chunk[chunk['anime_id'].isin(valid_anime_ids)]
-    metrics['dropped_orphans'] += (initial_len - len(chunk))
-
-    # 3. Optimization
+    # 2. Optimization
     chunk = reduce_memory_usage(chunk, verbose=False)
 
     return chunk, metrics
@@ -41,44 +36,75 @@ def clean_and_optimize_dataset(dataset_name: str, file_map: Dict[str, str]) -> D
     Full pipeline for a generic dataset: Load -> Clean -> Optimize -> Save.
     """
 
-    df = load_raw(dataset_name)
+    raw_data = load_raw(dataset_name)
 
-    initial_stats = {
-        'rows': len(df),
-        'mem': get_memory_usage_mb(df)
+    # We need to accumulate stats differently depending on whether it's a stream or a single DF
+    stats_accumulator = {
+        'rows_src': 0,
+        'rows_dst': 0,
+        'mem_src': 0.0,
+        'acc_mem_cleaned': 0.0,
+        'mem_dst': 0.0,
+        'actions': set()
     }
 
-    actions_taken = []
+    def process_chunk(df: pd.DataFrame) -> pd.DataFrame:
+        """Applies cleaning logic to a single chunk (or full DF)."""
 
-    # Standardize
-    df, clean_metrics = standardize_column_names_and_text(df)
-    if clean_metrics.get('duplicates_dropped', 0) > 0:
-        actions_taken.append(f"Removed {clean_metrics['duplicates_dropped']} duplicates")
+        current_rows = len(df)
+        current_mem = get_memory_usage_mb(df)
 
-    # Drop empty rows
-    df.dropna(how='all', inplace=True)
+        stats_accumulator['rows_src'] += current_rows
+        stats_accumulator['mem_src'] += current_mem
 
-    # Type-specific parsing
-    if _parse_date_if_exists(df, 'birthday'): actions_taken.append("Parsed birthdays")
-    if _parse_date_if_exists(df, 'joined'): actions_taken.append("Parsed join dates")
+        # Standardize
+        df, clean_metrics = standardize_column_names_and_text(df)
+        if clean_metrics.get('duplicates_dropped', 0) > 0:
+            stats_accumulator['actions'].add(f"Removed duplicates")
 
-    cleaned_mem = get_memory_usage_mb(df)
+        # Drop empty rows
+        df.dropna(how='all', inplace=True)
 
-    # Optimize
-    df = reduce_memory_usage(df, verbose=False)
+        # Type-specific parsing
+        if _parse_date_if_exists(df, 'birthday'): stats_accumulator['actions'].add("Parsed birthdays")
+        if _parse_date_if_exists(df, 'joined'): stats_accumulator['actions'].add("Parsed join dates")
 
-    # Save
-    if dataset_name in file_map:
-        save_refined(df, PROCESSED_DATA_DIR / file_map[dataset_name], format='parquet')
+        cleaned_mem = get_memory_usage_mb(df)
+        stats_accumulator['acc_mem_cleaned'] += cleaned_mem
+
+        # Optimize
+        df = reduce_memory_usage(df, verbose=False)
+
+        stats_accumulator['rows_dst'] += len(df)
+        stats_accumulator['mem_dst'] += get_memory_usage_mb(df)
+
+        return df
+
+    if isinstance(raw_data, pd.DataFrame):
+        # Single DataFrame Path
+        final_df = process_chunk(raw_data)
+
+        if dataset_name in file_map:
+            save_refined(final_df, PROCESSED_DATA_DIR / file_map[dataset_name], format='parquet')
+
+    else:
+        # Streaming Path
+        def result_generator():
+            for chunk in raw_data:
+                yield process_chunk(chunk)
+
+        # Drive the generator by saving
+        if dataset_name in file_map:
+            save_refined(result_generator(), PROCESSED_DATA_DIR / file_map[dataset_name], format='parquet')
 
     return {
         'file': dataset_name,
-        'rows_src': initial_stats['rows'],
-        'rows_dst': len(df),
-        'mem_src': initial_stats['mem'],
-        'mem_cleaned': cleaned_mem,
-        'mem_dst': get_memory_usage_mb(df),
-        'actions': actions_taken
+        'rows_src': stats_accumulator['rows_src'],
+        'rows_dst': stats_accumulator['rows_dst'],
+        'mem_src': stats_accumulator['mem_src'],
+        'mem_cleaned': stats_accumulator['acc_mem_cleaned'],
+        'mem_dst': stats_accumulator['mem_dst'],
+        'actions': list(stats_accumulator['actions'])
     }
 
 def clean_characters_dataset(df: pd.DataFrame) -> Tuple[pd.DataFrame, Dict[str, Any], Dict[str, Any]]:

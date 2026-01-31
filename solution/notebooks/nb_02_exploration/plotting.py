@@ -15,12 +15,15 @@ def plot_distribution(df: pd.DataFrame, column: str, log_scale: bool = False, ti
     """
     plt.figure(figsize=(12, 6))
     
+    # Filter out NaNs to prevent RuntimeWarning in nanops (kde calculation)
+    valid_data = df.dropna(subset=[column])
+    
     if log_scale:
         # For log scale, we handle 0 values? sns.histplot handles log_scale arg natively now
-        sns.histplot(data=df, x=column, kde=kde, log_scale=log_scale, stat="density")
+        sns.histplot(data=valid_data, x=column, kde=kde, log_scale=log_scale, stat="density")
         scale_label = " (Log Scale)"
     else:
-        sns.histplot(data=df, x=column, kde=kde, stat="density")
+        sns.histplot(data=valid_data, x=column, kde=kde, stat="density")
         scale_label = ""
         
     plt.title(title or f"Distribution of {column}{scale_label}")
@@ -63,7 +66,7 @@ def plot_categorical_comparison(df: pd.DataFrame, cat_col: str, num_col: str, to
         data_to_plot = df
         title_suffix = ""
         
-    order = data_to_plot.groupby(cat_col)[num_col].median().sort_values(ascending=False).index
+    order = data_to_plot.groupby(cat_col, observed=True)[num_col].median().sort_values(ascending=False).index
     
     sns.boxplot(x=cat_col, y=num_col, data=data_to_plot, order=order)
     plt.title(f"{num_col} by {cat_col}{title_suffix}")

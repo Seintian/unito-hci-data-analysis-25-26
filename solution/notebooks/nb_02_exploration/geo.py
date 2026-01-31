@@ -19,8 +19,6 @@ def generate_user_map(df_profiles: pd.DataFrame) -> None:
     # Here we simulate the preparation.
     
     top_locs = df_profiles['location'].value_counts().head(20)
-    print("Top 20 User Locations:")
-    print(top_locs)
     
     # Check for empty entries
     missing = df_profiles['location'].isna().sum()
@@ -29,5 +27,6 @@ def generate_user_map(df_profiles: pd.DataFrame) -> None:
     # Note: Creating a choropleth map is complex without a good geocoder
     # or pre-aligned names. We will leave this as a text summary for now
     # unless 'country' column exists or we do string matching.
-    
+
+    print("Top 20 User Locations:")
     return top_locs

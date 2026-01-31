@@ -41,32 +41,4 @@ def calculate_controversy_metric(df_stats: pd.DataFrame) -> pd.DataFrame:
 
     return df_stats
 
-def identify_outliers_iqr(df: pd.DataFrame, column: str, factor: float = 1.5) -> Tuple[pd.DataFrame, float, float]:
-    """
-    Identifies outliers using the IQR method.
-    """
 
-    Q1 = df[column].quantile(0.25)
-    Q3 = df[column].quantile(0.75)
-    IQR = Q3 - Q1
-
-    lower_bound = Q1 - factor * IQR
-    upper_bound = Q3 + factor * IQR
-
-    outliers = df[(df[column] < lower_bound) | (df[column] > upper_bound)]
-    print(f"IQR Outliers for '{column}': found {len(outliers)} (Bounds: {lower_bound:.2f}, {upper_bound:.2f})")
-
-    return outliers, lower_bound, upper_bound
-
-def identify_outliers_zscore(df: pd.DataFrame, column: str, threshold: float = 3.0) -> pd.DataFrame:
-    """
-    Identifies outliers using the Z-Score method.
-    """
-
-    df_clean = df.dropna(subset=[column]).copy()
-    df_clean['zscore'] = stats.zscore(df_clean[column])
-
-    outliers = df_clean[np.abs(df_clean['zscore']) > threshold]
-    print(f"Z-Score Outliers for '{column}': found {len(outliers)} (Threshold: {threshold} sigma)")
-
-    return outliers

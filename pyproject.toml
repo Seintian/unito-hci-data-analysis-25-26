@@ -12,6 +12,7 @@ dependencies = [
     "jupyterlab>=4.5.1",
     "matplotlib>=3.10.8",
     "pandas>=2.3.3",
+    "plotly>=6.5.2",
     "ppscore>=1.1.0",
     "pyarrow>=22.0.0",
     "scikit-learn>=1.8.0",

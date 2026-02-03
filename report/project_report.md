@@ -124,7 +124,19 @@ We effectively transformed a raw, messy dataset into a structured relational mod
 
 ## Division of Work
 
-[TO BE COMPLETED BY USER - MANDATORY]
+Each of us has contributed on a _pre-storytelling_ notebooks (and relative `nb_` packages):
+
+- [00_pre_cleaning_analysis.ipynb](../solution/notebooks/00_pre_cleaning_analysis.ipynb "Pre-Cleaning Analysis") - **Christian Santarelli**;
+- [01_cleaning.ipynb](../solution/notebooks/01_cleaning.ipynb "Cleaning") - **Salvatore Rudisi**;
+- [02_exploration.ipynb](../solution/notebooks/02_exploration.ipynb "Exploration") - **Andres Felipe Rosero Lopez**.
+
+Then, we worked on the actual stories, one per member:
+
+- [03_midas_touch.ipynb](../solution/notebooks/03_midas_touch.ipynb "The Mida's Touch") - **Andres Felipe Rosero Lopez**;
+- [03_chronicles_of_immortality.ipynb](../solution/notebooks/03_chronicles_of_immortality.ipynb "Chronicles of Immortality") - **Salvatore Rudisi**;
+- [03_origins_and_adaptations.ipynb](../solution/notebooks/03_origins_and_adaptations.ipynb "Origins and Adaptations") - **Christian Santarelli**.
+
+While we strived for an even distribution of workload across the pre-story notebooks, individual differences in workflow mean the commit counts **in the storytelling phase** may not perfectly reflect that balance.
 
 ## Extra Information
 
@@ -132,4 +144,4 @@ We effectively transformed a raw, messy dataset into a structured relational mod
 
 * Python 3.10+
 * Key Libraries: `pandas`, `numpy`, `plotly` (for interactive charts), `scikit-learn` (for PCA/Clustering), `pyarrow` (for fast I/O), `psutil`.
-* Unzip the raw data into `data/raw/` before running the `01_cleaning.ipynb` notebook.
+* Unzip the raw data into `data/raw/` before running the `00_pre_cleaning_analysis.ipynb` notebook.
